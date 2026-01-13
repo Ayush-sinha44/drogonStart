@@ -1,0 +1,41 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: drogonStart
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/scaffolder_db
+    username: scaffolder
+    password: REMOVED
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+# Docker configuration
+docker:
+  host: "unix:///var/run/docker.sock"
+  image:
+    name: "drogon-scaffold"
+    tag: "1.0"
+  container:
+    timeout-seconds: 120
+    memory-limit-mb: 512
+    workspace-base: "/tmp/drogon-workspaces"
+
+# Scaffolding configuration
+scaffolding:
+  cleanup-delay-minutes: 60
+  max-concurrent-jobs: 5
+
+logging:
+  level:
+    com.ayush.drgonStart: DEBUG
