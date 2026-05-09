@@ -121,6 +121,7 @@ public class ContainerManager {
                 .withHostConfig(hostConfig)
                 .withWorkingDir("/workspace")
                 // .withUser("1001:1001")  // COMMENTED OUT - was causing permission errors
+                .withUser("1000:1000") // Resolved the issue by rebuilding the image
                 .withCmd(command)
                 .withLabels(Map.of(
                         "job-id", jobId,

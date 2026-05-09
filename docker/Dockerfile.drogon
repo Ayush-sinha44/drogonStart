@@ -35,11 +35,11 @@ RUN drogon_ctl version
 # Create workspace
 WORKDIR /workspace
 
-# Create non-root user for security
-RUN useradd -m -u 1001 -s /bin/bash drogon && \
-    chown -R drogon:drogon /workspace
+# Create non-root user matching host UID
+RUN useradd -m -u 1000 -s /bin/bash appuser && \
+    chown -R appuser:appuser /workspace
 
-# USER drogon    # ← COMMENTED OUT - causes permission issues
-# Run as root instead
+# Switch to non-root user
+USER appuser
 
 CMD ["/bin/bash"]
