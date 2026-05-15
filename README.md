@@ -64,7 +64,7 @@ Make sure you have the following installed:
 
 ```bash
 git clone https://github.com/Ayush-sinha44/drogonStart.git
-cd drogon-scaffolder-backend
+cd drogonStart
 ```
 
 ### 2. Create your `.env` file
