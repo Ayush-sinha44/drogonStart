@@ -63,7 +63,7 @@ Make sure you have the following installed:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/drogon-scaffolder-backend.git
+git clone https://github.com/Ayush-sinha44drogon-scaffolder-backend.git
 cd drogon-scaffolder-backend
 ```
 
@@ -165,7 +165,7 @@ Generates and returns a zipped Drogon C++ project.
 
 ## Production Considerations
 
-The following production-readiness features are implemented or planned:
+The following production-readiness features are implemented 
 
 - **IP-based rate limiting** — prevents abuse of the Docker spawning endpoint
 - **Strict input validation** — project name, controller names sanitized before passing to `drogon_ctl`
