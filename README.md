@@ -103,7 +103,7 @@ chmod +x run.sh
 ```
 
 > **Why `run.sh` and not `mvn spring-boot:run` directly?**
-> Docker Compose automatically reads `.env` for the container, but Maven does not. The `run.sh` script sources `.env` into the shell environment first, so Spring Boot can resolve `${POSTGRES_PASSWORD}` in `application.yml`. This is standard practice for local dev with secret separation.
+> Docker Compose automatically reads `.env` for the container, but Maven does not. The `run.sh` script sources `.env` into the shell environment first, so Spring Boot can resolve `${POSTGRES_PASSWORD}` in `application.yml`. 
 
 The API will be available at `http://localhost:8080`.
 
