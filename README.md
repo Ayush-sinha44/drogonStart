@@ -63,7 +63,7 @@ Make sure you have the following installed:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Ayush-sinha44drogon-scaffolder-backend.git
+git clone https://github.com/Ayush-sinha44/drogonStart.git
 cd drogon-scaffolder-backend
 ```
 
