@@ -18,9 +18,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Drogon framework
+ARG DROGON_VERSION=v1.9.13
 WORKDIR /tmp
 RUN git clone https://github.com/drogonframework/drogon && \
     cd drogon && \
+    git checkout ${DROGON_VERSION} && \
     git submodule update --init && \
     mkdir build && cd build && \
     cmake .. && \

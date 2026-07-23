@@ -51,6 +51,21 @@ public class Job {
     @Column
     private Long projectSizeBytes;
 
+    /**
+     * Comma-separated list of selected dependency IDs.
+     * e.g. "postgresql,redis,spdlog"
+     */
+    @Column(length = 1000)
+    private String selectedDependencies;
+
+    /** C++ standard used for this project (e.g. "17", "20") */
+    @Column(length = 10)
+    private String cppStandard;
+
+    /** Drogon framework version tag used (e.g. "v1.9.8") */
+    @Column(length = 20)
+    private String drogonVersion;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) {

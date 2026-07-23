@@ -8,7 +8,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/scaffolder_db
     username: scaffolder
-    password:  ${POSTGRES_PASSWORD}
+    password:  passwordforpostgres
     driver-class-name: org.postgresql.Driver
 
   jpa:

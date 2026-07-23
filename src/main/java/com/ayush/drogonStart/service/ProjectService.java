@@ -5,6 +5,8 @@ import com.ayush.drogonStart.dto.ProjectRequest;
 import com.ayush.drogonStart.exception.JobNotFoundException;
 import com.ayush.drogonStart.model.Job;
 import com.ayush.drogonStart.model.JobStatus;
+import com.ayush.drogonStart.registry.BuildOptionsRegistry;
+import com.ayush.drogonStart.registry.DependencyRegistry;
 import com.ayush.drogonStart.repository.JobRepository;
 import com.ayush.drogonStart.service.ContainerManager.ContainerExecutionResult;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +18,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -28,6 +32,9 @@ public class ProjectService {
     private final JobRepository jobRepository;
     private final ContainerManager containerManager;
     private final FileManager fileManager;
+    private final ProjectCustomizer projectCustomizer;
+    private final DependencyRegistry dependencyRegistry;
+    private final BuildOptionsRegistry buildOptionsRegistry;
 
     /**
      * Creates a new project scaffolding job
@@ -35,18 +42,57 @@ public class ProjectService {
     public Job createProject(ProjectRequest request) {
         String jobId = UUID.randomUUID().toString();
 
+        // Validate dependency IDs if any are provided
+        if (request.getDependencies() != null && !request.getDependencies().isEmpty()) {
+            List<String> invalidIds = dependencyRegistry.validateIds(request.getDependencies());
+            if (!invalidIds.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Unknown dependency IDs: " + String.join(", ", invalidIds)
+                        + ". Use GET /api/v1/dependencies to see available options.");
+            }
+        }
+
+        // Apply defaults for C++ standard and Drogon version
+        String cppStandard = (request.getCppStandard() != null)
+                ? request.getCppStandard()
+                : BuildOptionsRegistry.DEFAULT_CPP_STANDARD;
+
+        String drogonVersion = (request.getDrogonVersion() != null)
+                ? request.getDrogonVersion()
+                : BuildOptionsRegistry.DEFAULT_DROGON_VERSION;
+
+        // Validate against allowed values
+        String cppError = buildOptionsRegistry.validateCppStandard(cppStandard);
+        if (cppError != null) {
+            throw new IllegalArgumentException(cppError);
+        }
+
+        String drogonError = buildOptionsRegistry.validateDrogonVersion(drogonVersion);
+        if (drogonError != null) {
+            throw new IllegalArgumentException(drogonError);
+        }
+
+        // Store selected dependencies as comma-separated string
+        String selectedDeps = (request.getDependencies() != null && !request.getDependencies().isEmpty())
+                ? String.join(",", request.getDependencies())
+                : null;
+
         Job job = Job.builder()
                 .id(jobId)
                 .projectName(request.getName())
                 .projectType(request.getProjectType())
                 .port(request.getPort())
+                .cppStandard(cppStandard)
+                .drogonVersion(drogonVersion)
+                .selectedDependencies(selectedDeps)
                 .status(JobStatus.QUEUED)
                 .createdAt(LocalDateTime.now())
                 .build();
 
         jobRepository.save(job);
 
-        log.info("Created job {} for project: {}", jobId, request.getName());
+        log.info("Created job {} for project: {} (C++{}, Drogon {}, deps: {})",
+                jobId, request.getName(), cppStandard, drogonVersion, selectedDeps);
 
         // Start async processing
         processProjectAsync(jobId);
@@ -83,7 +129,9 @@ public class ProjectService {
                     jobId,
                     job.getProjectName(),
                     job.getProjectType(),
-                    workspace
+                    workspace,
+                    job.getCppStandard(),
+                    job.getDrogonVersion()
             );
 
             if (!result.isSuccess()) {
@@ -105,15 +153,30 @@ public class ProjectService {
                 throw new RuntimeException("Project directory not found at: " + projectPath);
             }
 
-            // Analyze generated project
+            // Analyze generated project (before customization)
             int fileCount = fileManager.countFiles(projectPath);
-            long projectSize = fileManager.calculateSize(projectPath);
 
             if (fileCount == 0) {
                 throw new RuntimeException("No files were generated");
             }
 
-            log.info("Project generated: {} files, {} bytes", fileCount, projectSize);
+            log.info("Base project generated: {} files", fileCount);
+
+            // Apply dependency customizations (modify CMakeLists.txt, config.json, add examples)
+            List<String> depIds = parseSelectedDependencies(job.getSelectedDependencies());
+            if (!depIds.isEmpty()) {
+                log.info("Applying {} dependency customizations...", depIds.size());
+                projectCustomizer.customize(projectPath, depIds, job.getPort(), job.getCppStandard());
+            } else {
+                // Still apply port and C++ standard customization even without dependencies
+                projectCustomizer.customize(projectPath, Collections.emptyList(), job.getPort(), job.getCppStandard());
+            }
+
+            // Re-count after customization (example files may have been added)
+            fileCount = fileManager.countFiles(projectPath);
+            long projectSize = fileManager.calculateSize(projectPath);
+
+            log.info("Final project: {} files, {} bytes (after customization)", fileCount, projectSize);
 
             // Create ZIP file
             zipPath = fileManager.zipDirectory(projectPath, job.getProjectName());
@@ -165,6 +228,9 @@ public class ProjectService {
                 .projectName(job.getProjectName())
                 .projectType(job.getProjectType())
                 .port(job.getPort())
+                .cppStandard(job.getCppStandard())
+                .drogonVersion(job.getDrogonVersion())
+                .selectedDependencies(parseSelectedDependencies(job.getSelectedDependencies()))
                 .filesGenerated(job.getFilesGenerated())
                 .projectSizeBytes(job.getProjectSizeBytes())
                 .downloadUrl(job.getDownloadUrl())
@@ -205,5 +271,15 @@ public class ProjectService {
         }
 
         return Path.of("/tmp/drogon-workspaces/" + job.getProjectName() + ".zip");
+    }
+
+    /**
+     * Parse comma-separated dependency IDs into a list.
+     */
+    private List<String> parseSelectedDependencies(String selectedDependencies) {
+        if (selectedDependencies == null || selectedDependencies.isBlank()) {
+            return Collections.emptyList();
+        }
+        return Arrays.asList(selectedDependencies.split(","));
     }
 }

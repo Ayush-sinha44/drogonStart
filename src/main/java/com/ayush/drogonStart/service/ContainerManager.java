@@ -65,14 +65,17 @@ public class ContainerManager {
             String jobId,
             String projectName,
             String projectType,
-            Path workspacePath) {
+            Path workspacePath,
+            String cppStandard,
+            String drogonVersion) {
 
         String containerId = null;
 
         try {
-            log.info("Creating container for job {} to generate project {}", jobId, projectName);
+            log.info("Creating container for job {} to generate project {} (Drogon {}, C++{})",
+                    jobId, projectName, drogonVersion, cppStandard);
 
-            containerId = createContainer(jobId, projectName, projectType, workspacePath);
+            containerId = createContainer(jobId, projectName, projectType, workspacePath, drogonVersion);
             dockerClient.startContainerCmd(containerId).exec();
 
             Integer exitCode = dockerClient.waitContainerCmd(containerId)
@@ -101,7 +104,7 @@ public class ContainerManager {
     }
 
     private String createContainer(String jobId, String projectName, String projectType,
-                                   Path workspacePath) {
+                                   Path workspacePath, String drogonVersion) {
 
         HostConfig hostConfig = HostConfig.newHostConfig()
                 .withBinds(new Bind(workspacePath.toAbsolutePath().toString(),
@@ -111,7 +114,11 @@ public class ContainerManager {
                 .withPidsLimit(100L)
                 .withNetworkMode("none");  // No network access
 
-        String fullImageName = imageName + ":" + imageTag;
+        // Use the Drogon version as the image tag (e.g., drogon-scaffold:v1.9.8)
+        // Fall back to the configured default tag if drogonVersion is null
+        String resolvedTag = (drogonVersion != null) ? drogonVersion : imageTag;
+        String fullImageName = imageName + ":" + resolvedTag;
+        log.info("Using Docker image: {}", fullImageName);
 
         // Build drogon_ctl command
         String[] command = buildDrogonCommand(projectName, projectType);
