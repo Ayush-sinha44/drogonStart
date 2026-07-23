@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -75,7 +76,7 @@ public class ContainerManager {
             log.info("Creating container for job {} to generate project {} (Drogon {}, C++{})",
                     jobId, projectName, drogonVersion, cppStandard);
 
-            containerId = createContainer(jobId, projectName, projectType, workspacePath, drogonVersion);
+            containerId = createContainer(jobId, projectName, projectType, workspacePath);
             dockerClient.startContainerCmd(containerId).exec();
 
             Integer exitCode = dockerClient.waitContainerCmd(containerId)
@@ -91,6 +92,10 @@ public class ContainerManager {
                 );
             }
 
+            // Patch the generated CMakeLists.txt on the host filesystem
+            // (bind-mounted workspace is directly accessible from Java)
+            patchCMakeLists(workspacePath, projectName, drogonVersion, cppStandard);
+
             return ContainerExecutionResult.success(logs);
 
         } catch (Exception e) {
@@ -104,7 +109,7 @@ public class ContainerManager {
     }
 
     private String createContainer(String jobId, String projectName, String projectType,
-                                   Path workspacePath, String drogonVersion) {
+                                   Path workspacePath) {
 
         HostConfig hostConfig = HostConfig.newHostConfig()
                 .withBinds(new Bind(workspacePath.toAbsolutePath().toString(),
@@ -114,10 +119,9 @@ public class ContainerManager {
                 .withPidsLimit(100L)
                 .withNetworkMode("none");  // No network access
 
-        // Use the Drogon version as the image tag (e.g., drogon-scaffold:v1.9.8)
-        // Fall back to the configured default tag if drogonVersion is null
-        String resolvedTag = (drogonVersion != null) ? drogonVersion : imageTag;
-        String fullImageName = imageName + ":" + resolvedTag;
+        // Always use the single configured base image (e.g., drogon-scaffold:1.0)
+        // Version/standard selection is handled by post-generation CMakeLists.txt patching
+        String fullImageName = imageName + ":" + imageTag;
         log.info("Using Docker image: {}", fullImageName);
 
         // Build drogon_ctl command
@@ -189,6 +193,77 @@ public class ContainerManager {
         } catch (Exception e) {
             log.warn("Failed to cleanup container {}: {}", containerId, e.getMessage());
         }
+    }
+
+    /**
+     * Patch the generated CMakeLists.txt to reflect the user's chosen Drogon version
+     * and C++ standard.
+     *
+     * drogon_ctl generates a template CMakeLists.txt with:
+     * - A conditional block that auto-detects the C++ standard (lines 9-17 in template)
+     * - find_package(Drogon CONFIG REQUIRED) with no version pin
+     *
+     * This method replaces the conditional block with a fixed standard and adds
+     * a minimum version to find_package.
+     */
+    private void patchCMakeLists(Path workspacePath, String projectName,
+                                String drogonVersion, String cppStandard) {
+        // The project may be directly in workspace or in a subdirectory
+        Path cmakeFile = workspacePath.resolve(projectName).resolve("CMakeLists.txt");
+        if (!Files.exists(cmakeFile)) {
+            cmakeFile = workspacePath.resolve("CMakeLists.txt");
+        }
+        if (!Files.exists(cmakeFile)) {
+            log.warn("CMakeLists.txt not found in workspace, skipping patch");
+            return;
+        }
+
+        try {
+            String content = Files.readString(cmakeFile);
+
+            // 1. Replace the entire C++ standard conditional block with a fixed value.
+            //    The generated template has:
+            //      if (NOT "${CMAKE_CXX_STANDARD}" STREQUAL "")
+            //          # Do nothing
+            //      elseif (...)
+            //          set(CMAKE_CXX_STANDARD 17)
+            //      ...
+            //      endif ()
+            if (cppStandard != null) {
+                // Match the full conditional block from 'if (NOT "${CMAKE_CXX_STANDARD}"'
+                // through 'endif ()'
+                content = content.replaceAll(
+                        "(?s)if\\s*\\(\\s*NOT\\s+\"\\$\\{CMAKE_CXX_STANDARD\\}\".*?endif\\s*\\(\\s*\\)",
+                        "set(CMAKE_CXX_STANDARD " + cppStandard + ")"
+                );
+                log.info("Patched CMAKE_CXX_STANDARD to {} in CMakeLists.txt", cppStandard);
+            }
+
+            // 2. Pin Drogon version in find_package.
+            //    Generated template: find_package(Drogon CONFIG REQUIRED)
+            //    Patched:             find_package(Drogon 1.9.8 CONFIG REQUIRED)
+            if (drogonVersion != null) {
+                String numericVersion = stripLeadingV(drogonVersion);
+                content = content.replace(
+                        "find_package(Drogon CONFIG REQUIRED)",
+                        "find_package(Drogon " + numericVersion + " CONFIG REQUIRED)"
+                );
+                log.info("Pinned Drogon version to {} in CMakeLists.txt", numericVersion);
+            }
+
+            Files.writeString(cmakeFile, content);
+            log.info("CMakeLists.txt patched successfully for project {}", projectName);
+
+        } catch (IOException e) {
+            log.warn("Failed to patch CMakeLists.txt: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Strip the leading 'v' from a version tag (e.g., "v1.9.8" → "1.9.8").
+     */
+    private String stripLeadingV(String version) {
+        return (version != null && version.startsWith("v")) ? version.substring(1) : version;
     }
 
     /**
