@@ -20,7 +20,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private Bucket createNewBucket() {
         return Bucket.builder()
-                .addLimit(Bandwidth.simple(10, Duration.ofMinutes(1))) // 10 req/min
+                .addLimit(Bandwidth.simple(5, Duration.ofMinutes(1))) // 5 req/min
                 .build();
     }
 
@@ -48,7 +48,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 response.setStatus(429);
                 response.setContentType("application/json");
 
-                response.setHeader("X-Rate-Limit-Limit", "10");
+                response.setHeader("X-Rate-Limit-Limit", "5");
                 response.setHeader("X-Rate-Limit-Remaining", "0");
                 response.setHeader("Retry-After", "60");
 
