@@ -1,213 +1,73 @@
-# 🐉 Drogon Project Scaffolder — Backend
+# Drogon Start (Backend API)
 
-A Spring Boot backend that works like [Spring Initializr](https://start.spring.io/) but for **C++ [Drogon](https://github.com/drogonframework/drogon) web framework projects**. Send a POST request with your project configuration, and get back a ready-to-use zipped C++ project — generated inside an ephemeral Docker container running `drogon_ctl`.
+![Java](https://img.shields.io/badge/Java-21-orange.svg)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen.svg)
+![AWS](https://img.shields.io/badge/AWS-Lambda%20%7C%20S3-blue.svg)
+![PostgreSQL](https://img.shields.io/badge/Database-NeonDB-336791.svg)
 
+This repository contains the Backend REST API for **Drogon Start**, a highly scalable SaaS application designed to seamlessly scaffold and generate [Drogon C++](https://github.com/drogonframework/drogon) projects. 
 
+## 🏗️ Architecture overview
 
----
+The backend acts as an asynchronous orchestrator, connecting the frontend user interface to heavy-duty code generation logic without blocking HTTP requests. 
 
-## How It Works
+1. **REST API**: Built with Spring Boot to accept configuration payloads from the React frontend.
+2. **Compute Offloading**: Scaffolding logic (built in **Golang**) is offloaded to **AWS Lambda** to ensure the main API remains responsive under heavy load.
+3. **Secure Delivery**: Generated projects are compressed and uploaded to **AWS S3**. The backend provisions a time-limited **Presigned URL** for secure client downloads.
+4. **Data Tracking**: Connects to **NeonDB** (Serverless PostgreSQL) to persist job statuses, requested configurations, and generation metrics.
+5. **Deployment**: Containerized via a `Dockerfile` and deployed on **Render**.
 
-```
-Client Request
-     │
-     ▼
-Spring Boot API  ──►  Spins up ephemeral Docker container
-                              │
-                              ▼
-                       drogon_ctl generates C++ project
-                              │
-                              ▼
-                       Project zipped with Apache Commons Compress
-                              │
-                              ▼
-                       ZIP served for download  ──►  Container destroyed
-```
+## 🚀 Features
+- **Asynchronous Jobs**: Client polling mechanism to prevent HTTP timeouts during heavy generation.
+- **Polyglot Execution**: Java-based orchestration triggering Golang-based AWS Lambda functions.
+- **Dependency Customization**: Dynamic injection of C++ standards and Drogon versions via `CMakeLists.txt` patching.
+- **Cloud-Native Storage**: Auto-expiring S3 bucket architecture for cost-efficient file delivery.
 
-1. Client POSTs project config (name, controllers, views, etc.)
-2. Backend spawns a short-lived Docker container with `drogon_ctl` installed
-3. Container generates the C++ project structure
-4. Backend zips the output and streams it back as a download
-5. Container is cleaned up automatically
+## 🛠️ Tech Stack
+- **Framework**: Java 21 & Spring Boot 3
+- **Cloud Provider**: AWS SDK (S3, Lambda)
+- **Database**: PostgreSQL (NeonDB)
+- **Containerization**: Docker
+- **Deployment**: Render
 
----
+## ⚙️ Environment Variables
 
-## Tech Stack
+To run this project locally or in production, you must configure the following environment variables:
 
-| Layer | Technology |
-|---|---|
-| Language | Java 21 |
-| Framework | Spring Boot 4.x |
-| Database | PostgreSQL (via Docker) |
-| ORM | Hibernate / Spring Data JPA |
-| Docker integration | Docker Java SDK |
-| ZIP creation | Apache Commons Compress |
-| Async processing | Spring `@Async` |
-| Build tool | Maven |
+| Variable | Description |
+| :--- | :--- |
+| `SPRING_PROFILES_ACTIVE` | Set to `render` for production, leave blank for local dev. |
+| `DATABASE_URL` | JDBC URL for your PostgreSQL instance (e.g., NeonDB). |
+| `DATABASE_USERNAME` | Database user. |
+| `DATABASE_PASSWORD` | Database password. |
+| `AWS_ACCESS_KEY_ID` | IAM User access key with S3/Lambda permissions. |
+| `AWS_SECRET_ACCESS_KEY` | IAM User secret key. |
+| `AWS_REGION` | AWS Region (e.g., `ap-south-1`). |
+| `AWS_S3_BUCKET` | The name of the S3 bucket to store generated zips. |
+| `AWS_LAMBDA_FUNCTION_NAME` | The exact name of your AWS Lambda function. |
 
----
+## 💻 Running Locally
 
-## Prerequisites
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/Ayush-sinha44/drogonStart.git
+   cd drogonStart
+   ```
 
-Make sure you have the following installed:
+2. **Configure your environment:**
+   Create an `application-local.yml` or export the environment variables listed above into your terminal.
 
-- **Java 21+**
-- **Maven 3.8+**
-- **Docker** (the backend spawns containers at runtime — Docker must be running)
-- **Docker Compose**
+3. **Build and Run:**
+   ```bash
+   ./mvnw clean install -DskipTests
+   ./mvnw spring-boot:run
+   ```
+   The API will be accessible at `http://localhost:8080`.
 
----
+## 📦 Deployment
 
-## Getting Started
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/Ayush-sinha44/drogonStart.git
-cd drogonStart
-```
-
-### 2. Create your `.env` file
-
-Create a `.env` file in the project root. 
-
-```bash
-cp .env.example .env
-```
-
-Then edit `.env` and fill in your values:
-
-```env
-POSTGRES_PASSWORD="your_password_here"
-POSTGRES_USER=scaffolder
-POSTGRES_DB=scaffolder_db
-```
-
-> ⚠️ If your password contains special characters like `@`, make sure to **wrap it in quotes** in the `.env` file, otherwise shell parsing will break.
-
-### 3. Start the database
-
-```bash
-docker-compose up -d
-```
-
-This starts a PostgreSQL container using the credentials from your `.env` file.
-
-### 4. Run the application
-
-Use the provided `run.sh` script, which loads `.env` into the shell before starting Spring Boot:
-
-```bash
-chmod +x run.sh
-./run.sh
-```
-
-> **Why `run.sh` and not `mvn spring-boot:run` directly?**
-> Docker Compose automatically reads `.env` for the container, but Maven does not. The `run.sh` script sources `.env` into the shell environment first, so Spring Boot can resolve `${POSTGRES_PASSWORD}` in `application.yml`. 
-
-The API will be available at `http://localhost:8080`.
-
----
-
-## Project Structure
-
-```
-drogon-scaffolder-backend/
-├── src/
-│   └── main/
-│       ├── java/com/ayush/drogonStart/
-│       │   ├── controller/       # REST endpoints
-│       │   ├── service/          # Business logic, Docker orchestration
-│       │   ├── model/            # JPA entities
-│       │   ├── repository/       # Spring Data repositories
-│       │   └── DrogonStartApplication.java
-│       └── resources/
-│           └── application.yml
-├── docker-compose.yml            # PostgreSQL container
-├── .env                          # Local secrets (gitignored)
-├── .env.example                  # Template for .env
-├── run.sh                        # Dev startup script
-└── pom.xml
-```
-
----
-
-## Environment Variables
-
-| Variable | Description | Example |
-|---|---|---|
-| `POSTGRES_PASSWORD` | Password for the `scaffolder` DB user | `"mypassword@123"` |
-| `POSTGRES_USER` | PostgreSQL username | `scaffolder` |
-| `POSTGRES_DB` | Database name | `scaffolder_db` |
-
-These are referenced in `application.yml` as `${POSTGRES_PASSWORD}` etc., and in `docker-compose.yml` for container initialization.
-
----
-
-## API Overview
-
-### `POST /api/scaffold`
-
-Generates and returns a zipped Drogon C++ project.
-
-**Request body:**
-```json
-{
-  "projectName": "my-api",
-  "controllers": ["UserController", "AuthController"],
-  "enableViews": false
-}
-```
-
-**Response:** `application/zip` — a downloadable `.zip` file containing the generated project.
-
----
-
-## Production Considerations
-
-The following production-readiness features are implemented 
-
-- **IP-based rate limiting** — prevents abuse of the Docker spawning endpoint
-- **Strict input validation** — project name, controller names sanitized before passing to `drogon_ctl`
-- **Resource limits** — containers run with 512MB RAM cap, 1 CPU, 120s timeout, and `--network none`
-- **Async job processing** — scaffold jobs are handled asynchronously with `@Async`
-- **Health checks** — Spring Actuator endpoints for container orchestration readiness
-- **Cleanup jobs** — scheduled tasks to remove orphaned containers and temp files
-
-
-
-## Troubleshooting
-
-**`password authentication failed for user "scaffolder"`**
-
-Your shell doesn't have the env vars loaded. Use `./run.sh` instead of `mvn spring-boot:run` directly, or run:
-```bash
-export $(cat .env | xargs) && mvn spring-boot:run
-```
-
-**`Permission denied` on `run.sh`**
-```bash
-chmod +x run.sh
-```
-
-**Docker container fails to start**
-
-Make sure Docker daemon is running:
-```bash
-sudo systemctl start docker
-# or
-docker info
-```
-
-**Volume has stale credentials after password change**
-```bash
-docker-compose down -v   # removes the volume, DB will reinitialize
-docker-compose up -d
-```
-
----
-
-## Related
-
-- [Drogon Framework](https://github.com/drogonframework/drogon) — the C++ web framework this tool scaffolds projects for
-- [Spring Initializr](https://start.spring.io/) — the inspiration for this project's UX
+This backend is pre-configured for automated deployment on Render using Docker. 
+1. Connect the repository to Render.
+2. Select **Docker** as the runtime environment.
+3. Add the required environment variables in the Render dashboard.
+4. Deploy!
