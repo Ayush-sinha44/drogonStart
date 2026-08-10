@@ -45,11 +45,18 @@ public class ProjectCustomizer {
      * @param dependencyIds List of selected dependency IDs (e.g., ["postgresql", "spdlog"])
      * @param port The port to configure in config.json
      * @param cppStandard The C++ standard to set in CMakeLists.txt (e.g., "17", "20")
+     * @param drogonVersion The Drogon version to pin in find_package (e.g., "v1.9.8")
      */
-    public void customize(Path projectPath, List<String> dependencyIds, Integer port, String cppStandard) {
+    public void customize(Path projectPath, List<String> dependencyIds, Integer port,
+                          String cppStandard, String drogonVersion) {
         // 0. Always apply C++ standard (it always has a value after defaulting)
         if (cppStandard != null) {
             updateCppStandard(projectPath, cppStandard);
+        }
+
+        // 0b. Pin Drogon version in find_package
+        if (drogonVersion != null) {
+            patchDrogonVersion(projectPath, drogonVersion);
         }
 
         if (dependencyIds == null || dependencyIds.isEmpty()) {
@@ -95,6 +102,48 @@ public class ProjectCustomizer {
         addExampleFiles(projectPath, selectedDeps);
 
         log.info("Project customization completed successfully");
+    }
+
+    // ==================== DROGON VERSION PINNING ====================
+
+    /**
+     * Pin the Drogon version in CMakeLists.txt's find_package directive.
+     * Replaces: find_package(Drogon CONFIG REQUIRED)
+     * With:     find_package(Drogon 1.9.8 CONFIG REQUIRED)
+     *
+     * This was previously in ContainerManager.patchCMakeLists() but is now
+     * centralized here alongside all other post-generation patching.
+     */
+    private void patchDrogonVersion(Path projectPath, String drogonVersion) {
+        Path cmakePath = projectPath.resolve("CMakeLists.txt");
+
+        if (!Files.exists(cmakePath)) {
+            log.warn("CMakeLists.txt not found at {}, skipping Drogon version pinning", cmakePath);
+            return;
+        }
+
+        try {
+            String content = Files.readString(cmakePath, StandardCharsets.UTF_8);
+
+            String numericVersion = stripLeadingV(drogonVersion);
+            content = content.replace(
+                    "find_package(Drogon CONFIG REQUIRED)",
+                    "find_package(Drogon " + numericVersion + " CONFIG REQUIRED)"
+            );
+
+            Files.writeString(cmakePath, content, StandardCharsets.UTF_8);
+            log.info("Pinned Drogon version to {} in CMakeLists.txt", numericVersion);
+
+        } catch (IOException e) {
+            log.error("Failed to pin Drogon version in CMakeLists.txt: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Strip the leading 'v' from a version tag (e.g., "v1.9.8" → "1.9.8").
+     */
+    private String stripLeadingV(String version) {
+        return (version != null && version.startsWith("v")) ? version.substring(1) : version;
     }
 
     // ==================== CONFIG.JSON MODIFICATION ====================

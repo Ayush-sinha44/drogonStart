@@ -1,10 +1,6 @@
 package com.ayush.drogonStart.controller;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import com.ayush.drogonStart.dto.JobResponse;
 import com.ayush.drogonStart.dto.JobStatusResponse;
 import com.ayush.drogonStart.dto.ProjectRequest;
@@ -17,12 +13,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.nio.file.Path;
+import java.net.URI;
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/projects")
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 @Slf4j
 public class ProjectController {
@@ -69,28 +65,19 @@ public class ProjectController {
         return ResponseEntity.ok(response);
     }
     /**
-     * Download project ZIP file
+     * Download project ZIP file.
+     * Redirects to the S3 presigned URL for the completed project.
      * GET /api/v1/projects/{jobId}/download
      */
     @GetMapping("/{jobId}/download")
-    public ResponseEntity<Resource> downloadProject(@PathVariable String jobId) throws IOException, IOException {
+    public ResponseEntity<Void> downloadProject(@PathVariable String jobId) {
         log.info("Download requested for job: {}", jobId);
 
-        Path zipPath = projectService.getDownloadPath(jobId);
+        String downloadUrl = projectService.getDownloadUrl(jobId);
 
-        if (!Files.exists(zipPath)) {
-            return ResponseEntity.notFound().build();
-        }
-
-        Resource resource = new org.springframework.core.io.FileSystemResource(zipPath);
-
-        String filename = zipPath.getFileName().toString();
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .contentLength(Files.size(zipPath))
-                .body(resource);
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(downloadUrl))
+                .build();
     }
 
     /**

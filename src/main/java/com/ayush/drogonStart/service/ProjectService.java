@@ -8,13 +8,12 @@ import com.ayush.drogonStart.model.JobStatus;
 import com.ayush.drogonStart.registry.BuildOptionsRegistry;
 import com.ayush.drogonStart.registry.DependencyRegistry;
 import com.ayush.drogonStart.repository.JobRepository;
-import com.ayush.drogonStart.service.ContainerManager.ContainerExecutionResult;
+import com.ayush.drogonStart.service.LambdaScaffoldService.ScaffoldResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -30,7 +29,7 @@ import java.util.concurrent.CompletableFuture;
 public class ProjectService {
 
     private final JobRepository jobRepository;
-    private final ContainerManager containerManager;
+    private final LambdaScaffoldService lambdaScaffoldService;
     private final FileManager fileManager;
     private final ProjectCustomizer projectCustomizer;
     private final DependencyRegistry dependencyRegistry;
@@ -101,18 +100,23 @@ public class ProjectService {
     }
 
     /**
-     * Process project generation using Docker
+     * Process project generation via AWS Lambda + S3.
+     *
+     * Flow:
+     * 1. Invoke Lambda → generates base project → uploads ZIP to S3
+     * 2. Download ZIP from S3 → extract to local temp dir
+     * 3. Apply customizations (dependencies, C++ standard, Drogon version, port)
+     * 4. Re-zip → upload final ZIP to S3
+     * 5. Store presigned download URL in job
      */
     @Async
     public CompletableFuture<Void> processProjectAsync(String jobId) {
-        log.info("Starting Docker-based processing for job: {}", jobId);
+        log.info("Starting Lambda-based processing for job: {}", jobId);
 
         Job job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new JobNotFoundException(jobId));
 
         Path workspace = null;
-        Path projectPath = null;
-        Path zipPath = null;
 
         try {
             // Update status to PROCESSING
@@ -120,29 +124,26 @@ public class ProjectService {
             jobRepository.save(job);
             log.info("Job {} status changed to PROCESSING", jobId);
 
-            // Create workspace
-            workspace = fileManager.createWorkspace(jobId);
-
-            // Execute Docker container
-            log.info("Executing Docker container for job {}...", jobId);
-            ContainerExecutionResult result = containerManager.executeScaffolding(
+            // Step 1: Invoke Lambda to generate the base project
+            log.info("Invoking Lambda for job {}...", jobId);
+            ScaffoldResult result = lambdaScaffoldService.invokeScaffoldLambda(
                     jobId,
                     job.getProjectName(),
-                    job.getProjectType(),
-                    workspace,
-                    job.getCppStandard(),
-                    job.getDrogonVersion()
+                    job.getProjectType()
             );
 
             if (!result.isSuccess()) {
-                throw new RuntimeException(result.getMessage() + "\nLogs:\n" + result.getLogs());
+                throw new RuntimeException("Lambda scaffolding failed: " + result.getMessage());
             }
 
-            log.info("Container execution successful. Checking generated files...");
+            log.info("Lambda execution successful. Base project at S3 key: {}", result.getS3Key());
 
-            // Drogon creates project directly in workspace OR in a subdirectory
-            // Check both locations
-            projectPath = workspace.resolve(job.getProjectName());
+            // Step 2: Download and extract the base project from S3
+            workspace = fileManager.createWorkspace(jobId);
+            lambdaScaffoldService.downloadAndExtract(result.getS3Key(), workspace);
+
+            // Lambda generates the project inside a subdirectory named after the project
+            Path projectPath = workspace.resolve(job.getProjectName());
 
             if (!java.nio.file.Files.exists(projectPath)) {
                 log.info("Project subdirectory not found, using workspace directly");
@@ -162,15 +163,15 @@ public class ProjectService {
 
             log.info("Base project generated: {} files", fileCount);
 
-            // Apply dependency customizations (modify CMakeLists.txt, config.json, add examples)
+            // Step 3: Apply customizations (dependencies, C++ standard, Drogon version, port)
             List<String> depIds = parseSelectedDependencies(job.getSelectedDependencies());
-            if (!depIds.isEmpty()) {
-                log.info("Applying {} dependency customizations...", depIds.size());
-                projectCustomizer.customize(projectPath, depIds, job.getPort(), job.getCppStandard());
-            } else {
-                // Still apply port and C++ standard customization even without dependencies
-                projectCustomizer.customize(projectPath, Collections.emptyList(), job.getPort(), job.getCppStandard());
-            }
+            projectCustomizer.customize(
+                    projectPath,
+                    depIds,
+                    job.getPort(),
+                    job.getCppStandard(),
+                    job.getDrogonVersion()
+            );
 
             // Re-count after customization (example files may have been added)
             fileCount = fileManager.countFiles(projectPath);
@@ -178,18 +179,25 @@ public class ProjectService {
 
             log.info("Final project: {} files, {} bytes (after customization)", fileCount, projectSize);
 
-            // Create ZIP file
-            zipPath = fileManager.zipDirectory(projectPath, job.getProjectName());
+            // Step 4: ZIP the customized project and upload to S3
+            Path zipPath = fileManager.zipDirectory(projectPath, job.getProjectName());
+            String finalS3Key = lambdaScaffoldService.uploadFinalZip(zipPath, jobId, job.getProjectName());
+
+            // Step 5: Generate presigned download URL
+            String downloadUrl = lambdaScaffoldService.generatePresignedUrl(finalS3Key);
 
             // Update job with success
             job.setStatus(JobStatus.COMPLETED);
             job.setCompletedAt(LocalDateTime.now());
             job.setFilesGenerated(fileCount);
             job.setProjectSizeBytes(projectSize);
-            job.setDownloadUrl("/api/v1/projects/" + jobId + "/download");
+            job.setDownloadUrl(downloadUrl);
 
             jobRepository.save(job);
             log.info("Job {} completed successfully", jobId);
+
+            // Clean up the base ZIP from S3 (we only need the final one)
+            lambdaScaffoldService.deleteFromS3(result.getS3Key());
 
         } catch (Exception e) {
             log.error("Job {} failed with error: {}", jobId, e.getMessage(), e);
@@ -200,11 +208,10 @@ public class ProjectService {
             jobRepository.save(job);
 
         } finally {
-//            // Cleanup workspace (but keep ZIP for download)
-//            if (workspace != null) {
-//                fileManager.deleteDirectory(workspace);
-//            }
-             log.info("Finally block reached. Workspace NOT deleted for debugging.");
+            // Cleanup local workspace
+            if (workspace != null) {
+                fileManager.deleteDirectory(workspace);
+            }
         }
 
         return CompletableFuture.completedFuture(null);
@@ -260,9 +267,11 @@ public class ProjectService {
     }
 
     /**
-     * Get ZIP file path for download
+     * Get the download URL for a completed job.
+     * In the Lambda+S3 architecture, this returns the presigned S3 URL
+     * stored in the job record.
      */
-    public Path getDownloadPath(String jobId) {
+    public String getDownloadUrl(String jobId) {
         Job job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new JobNotFoundException(jobId));
 
@@ -270,7 +279,9 @@ public class ProjectService {
             throw new IllegalStateException("Job is not completed yet");
         }
 
-        return Path.of("/tmp/drogon-workspaces/" + job.getProjectName() + ".zip");
+        // If the presigned URL has expired, regenerate it
+        // For now, return the stored URL (valid for 1 hour from generation)
+        return job.getDownloadUrl();
     }
 
     /**

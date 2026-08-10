@@ -8,7 +8,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/scaffolder_db
     username: scaffolder
-    password:  passwordforpostgres
+    password: passwordforpostgres
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -20,22 +20,20 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
 
-# Docker configuration
-docker:
-  host: "unix:///var/run/docker.sock"
-  image:
-    name: "drogon-scaffold"
-    tag: "1.0"
-  container:
-    timeout-seconds: 120
-    memory-limit-mb: 512
-    workspace-base: "/tmp/drogon-workspaces"
+# AWS configuration (for local development, uses ~/.aws/credentials or env vars)
+aws:
+  region: "ap-south-1"
+  lambda:
+    function-name: "drogon-scaffold"
+  s3:
+    bucket: "drogon-scaffolds"
 
-# Scaffolding configuration
+# Workspace configuration (local temp dir for extracting/patching projects)
 scaffolding:
+  workspace-base: "/tmp/drogon-workspaces"
   cleanup-delay-minutes: 60
   max-concurrent-jobs: 5
 
 logging:
   level:
-    com.ayush.drgonStart: DEBUG
+    com.ayush.drogonStart: DEBUG

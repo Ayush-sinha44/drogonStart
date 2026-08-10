@@ -17,7 +17,7 @@ public class FileManager {
 
     private final Path workspaceBase;
 
-    public FileManager(@Value("${docker.container.workspace-base}") String workspaceBase) {
+    public FileManager(@Value("${scaffolding.workspace-base}") String workspaceBase) {
         this.workspaceBase = Paths.get(workspaceBase);
         try {
             Files.createDirectories(this.workspaceBase);

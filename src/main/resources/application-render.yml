@@ -1,0 +1,40 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: drogonStart
+
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME:scaffolder}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+
+# AWS configuration (from Render environment variables)
+aws:
+  region: ${AWS_REGION:ap-south-1}
+  lambda:
+    function-name: ${AWS_LAMBDA_FUNCTION_NAME:drogon-scaffold}
+  s3:
+    bucket: ${AWS_S3_BUCKET:drogon-scaffolds}
+
+# Workspace configuration
+scaffolding:
+  workspace-base: "/tmp/drogon-workspaces"
+  cleanup-delay-minutes: 30
+  max-concurrent-jobs: 5
+
+logging:
+  level:
+    com.ayush.drogonStart: INFO
+    root: WARN
