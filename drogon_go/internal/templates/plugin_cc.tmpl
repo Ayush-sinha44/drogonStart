@@ -1,0 +1,19 @@
+/**
+ *
+ *  {{.FileName}}.cc
+ *
+ */
+
+#include "{{.FileName}}.h"
+
+{{if .NamespaceString}}using namespace {{.NamespaceString}};{{end}}
+
+void {{.ClassName}}::initAndStart(const Json::Value &config)
+{
+    /// Initialize and start the plugin
+}
+
+void {{.ClassName}}::shutdown() 
+{
+    /// Shutdown the plugin
+}

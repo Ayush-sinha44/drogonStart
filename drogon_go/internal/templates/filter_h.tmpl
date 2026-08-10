@@ -1,0 +1,26 @@
+/**
+ *
+ *  {{.FileName}}.h
+ *
+ */
+
+#pragma once
+
+#include <drogon/HttpFilter.h>
+using namespace drogon;
+{{if not .Namespaces}}
+{{end}}{{range .Namespaces}}
+namespace {{.}}
+{
+{{end}}
+class {{.ClassName}} : public HttpFilter<{{.ClassName}}>
+{
+  public:
+    {{.ClassName}}() {}
+    void doFilter(const HttpRequestPtr &req,
+                  FilterCallback &&fcb,
+                  FilterChainCallback &&fccb) override;
+};
+{{range .Namespaces}}
+}
+{{end}}
